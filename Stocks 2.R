@@ -13,8 +13,92 @@ library(dplyr)
 library(tidyr)
 # Para Gráficos
 library(ggplot2)
+# Para estilo do gráfico
+library(bbplot)
+# Para gráficos animados
+library(gganimate)
+# para API twitter
+library(twitteR)
+# biblioteca para analise de texto
+library(tidytext)
+# Biblioteca mineração de dados
+library(tm)
+# Bibliotecas auxiliares
+library('openssl')
+library('httpuv')
+
+setwd("C:/Users/Isadora/Dropbox/CURSOS/R/1 ano r ladies")
 
 
+############### Você versus seu banco ------------------------------------
+
+# tempo (meses)
+t   <- 30*12
+# deposito atual
+P   <- 1
+# depósito mensal
+i   <- 0.0094
+# taxa aplicação (ao mes) (https://www.clubedospoupadores.com/conversor-de-taxas-de-juros-anual-para-mensal)
+PMT <- 1.00
+
+# Depositos periodicos
+Total_Mensal   <- function(t,i,PMT)
+  {
+  FV <- PMT*((1+i)^(t)-1)/i
+  FV
+  }
+# Montante atual
+Montante_Atual <- function(P,i,t)
+  {
+  A  <-  P*(1 + i)^t
+  A
+  }
+
+## Total
+total <- Total_Mensal(t)+Montante_Atual(P,i,t)
+## Total sem juros
+total_sj <- PMT*t
+
+## Gráfico
+meses <- seq(1:(10*12))
+juros_banco <- 0.1344 #247% ao ano
+juros_fgts  <- 0.0029 #3,6% ao ano
+
+divida  <- lapply(meses, Montante_Atual, i=juros_banco,P=P)
+divida  <- do.call(rbind,divida)
+fundo   <- lapply(meses, Total_Mensal, i=juros_fgts,PMT=PMT)
+fundo   <- do.call(rbind,fundo)
+
+comparação <- data.frame(meses,divida,fundo)
+
+ggplot(comparação,aes(meses))+
+       geom_line(aes(y=divida), colour = "coral2",size=2)+
+       geom_line(aes(y=fundo), colour  = "cornflowerblue",size=2)+
+  labs(title = "Você vs Seu banco", subtitle = "Como sua dívida cresce")+ 
+  xlab("Tempo (meses)") + ylab("Dinheiro")+
+  theme(      axis.line = element_blank(),  
+              axis.text.x = element_text(size = 12, color = "white", lineheight = 0.9),  
+              axis.text.y = element_text(size = 12, color = "white", lineheight = 0.9),  
+              axis.ticks = element_line(color = "white", size  =  0.2),  
+              axis.title.x = element_text(size = 15, color = "white", margin = margin(0, 10, 0, 0)),  
+              axis.title.y = element_text(size = 15, color = "white", angle = 90, margin = margin(0, 10, 0, 0)),  
+              axis.ticks.length = unit(0.3, "lines"),   
+              # Specify legend options
+              legend.background = element_rect(color = NA, fill = "black"),
+              legend.key = element_rect(color = "white",  fill = "black"),
+              panel.background = element_rect(fill = "black", color  =  NA),  
+              panel.border = element_rect(fill = NA, color = "white"),
+              panel.grid.major = element_line(color = "grey35"),  
+              panel.grid.minor = element_line(color = "grey20"),
+              plot.background = element_rect(color = "black", fill = "black"),  
+              plot.title = element_text(size = 18, color = "white"),  
+              plot.margin = unit(rep(1, 4), "lines")
+              )+
+  transition_reveal(meses) 
+
+
+  
+########## ---------------------------------------------------------------
 # Pega nome das Empresas pelo site "ADVFN" ------------------------------
 
 # Url do site, de A a Z
@@ -37,12 +121,8 @@ empresas <- empresas%>%
   unlist(empresas,recursive=FALSE)%>%
   bind_rows(.id = "Ação")
 empresas[is.na(empresas)] = ''
-colnames(empresas)[3:26] <- seq(1:24)
+colnames(empresas)[3] <- "ticker"
 
-# Une as colunas
-empresas <- data.frame(empresas[,2],
-                 unite(empresas[,3:26], "ticker", sep=''))%>%
-  filter(nchar(ticker)==5)
 
 
 # Fundamentos da ação --------------------------------------------
@@ -113,7 +193,9 @@ colnames(df1) <- y
 df1 <- df1%>%
   mutate(div.yield.real=as.numeric(div.12.meses)/as.numeric(cotacao))
 
-df <- left_join(empresas,df1)
+df <- left_join(empresas[,2:3],df1)
+df <-  df%>%
+        filter(!is.na(cotacao))
 rm(df1)
 
 # Empresas com bom fundamento
@@ -139,8 +221,12 @@ dividendo1 <- left_join(dividendo,df,by="ticker")%>%
 # Base do gráfico para dividendos
 ggplot(dividendo1%>% filter(as.numeric(ano)>2005),
        aes(x=ano, y=pr))+geom_bar(stat="identity", fill="steelblue")+
+  labs(title = "Effect of Vitamin C on Tooth Growth",
+       subtitle = "Plot of length by dose",
+       caption = "Data source: ToothGrowth")+
   ggtitle("Dividendos ao longo de 13 anos")+facet_wrap(~ticker)+ylim(0,10)+
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        plot.title = element_text())+bbc_style()
 
 
 # Modelo de gordon --------------------------------------------------------
@@ -160,3 +246,45 @@ agrupamento <- filter(dividendo1,as.numeric(ano)>2005)%>%
   summarise(dividendo=median(div.ano))%>%
   mutate(valor.ideal=as.numeric(dividendo)/(k-g))%>%
   mutate(crescimento=(valor.ideal-as.numeric(cotacao))/as.numeric(cotacao))
+
+# API twitter ------------------------------
+
+consumer_key    <- "XXXXXXXXXXXXXXXXXXXXXXX"
+consumer_secret <- "XXXXXXXXXXXXXXXXXXXXXXX"
+access_token    <- "XXXXXXXXXXXXXXXXXXXXXXX"
+access_secret   <- "XXXXXXXXXXXXXXXXXXXXXXX"
+
+setup_twitter_oauth(consumer_key, consumer_secret, access_token, access_secret)
+
+# pega as notícias de um ticker
+
+pesquisa <- searchTwitter("PETR4",n=1000,lang="pt")
+df <- twListToDF(pesquisa) # Convert to data frame
+df <- df[!duplicated(df$text),]
+tweet_words <- df %>% select(id, text) %>% unnest_tokens(word,text)
+
+
+# pegando base de palavras para classificação
+palavras_neutras    <-  data.frame(stopwords('portuguese'))%>%
+  mutate(palavras=stopwords..portuguese..,polaridade=0)%>%
+  select(-stopwords..portuguese..)
+palavras_positivas  <-  read.table('positive_words_pt.txt', header = F, sep = "\t", strip.white = F, 
+                                   stringsAsFactors = F, encoding="UTF-8")%>%
+  filter(!V1 %in% palavras_neutras$palavras)%>%
+  mutate(palavras=V1,polaridade=1)%>%
+  select(-V1)
+palavras_negativas  <-  read.table('negative_words_pt.txt', header = F, sep = "\t", strip.white = F, 
+                                   stringsAsFactors = F, encoding="UTF-8")%>%
+  filter(!V1 %in% palavras_neutras$palavras)%>%
+  mutate(palavras=V1,polaridade=-1)%>%
+  select(-V1)
+
+palavras_n_e_p <- rbind(palavras_positivas,palavras_negativas) 
+
+# classificando
+tweet_words_count <-  tweet_words %>% count(word,sort=T) %>%
+  filter(!word %in% palavras_neutras$palavras)%>%
+  left_join(palavras_n_e_p, by=c("word"="palavras"))%>%
+  mutate(potencia=n*polaridade)%>%
+  filter(!is.na(potencia))
+sum(tweet_words_count$potencia)
